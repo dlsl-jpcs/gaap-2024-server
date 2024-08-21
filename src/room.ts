@@ -1,5 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { User, WebSocketData } from "./user";
+import { getStudentInfo } from "./utils";
+
 
 export class Room {
     users: User[] = [];
@@ -21,12 +23,12 @@ export class Room {
         const data = JSON.parse(message.toString());
         if (data.type === 'moved') {
             this.userEliminated(fromUser);
-
+            ` console.log("User: " + fromUser.id + " eliminated by " + data.cause);`
         }
     }
 
 
-    addUser(socket: ServerWebSocket<WebSocketData>) {
+    async addUser(socket: ServerWebSocket<WebSocketData>): Promise<User> {
         const existing = this.users.find(s => s.id === socket.data.id);
         if (existing) {
             existing.socket = socket;
@@ -40,15 +42,45 @@ export class Room {
             }
 
             existing.connectionState = 'connected';
-            return;
+            return existing;
         }
 
-        this.users.push({
+        const studentInfo = await getStudentInfo(socket.data.id.toString()).catch(e => {
+            return null;
+        }).then(data => {
+            if (data) return data;
+
+            return {
+                email_address: 'unknown_student_' + socket.data.id + '@dlsl.edu.ph',
+                department: 'BSIT',
+            }
+        });
+
+        const user: User = {
             socket: socket,
             id: socket.data.id,
+            course: studentInfo.department,
+            email: studentInfo.email_address,
+            spectator: socket.data.isSpectator,
             connectionState: 'connected',
             state: 'active'
-        });
+        };
+        this.users.push(user);
+
+
+        if (!user.spectator) {
+            this.getSpectators()
+                .forEach(s => {
+                    s.socket?.send(JSON.stringify({
+                        type: 'join',
+                        id: user.id,
+                        course: user.course,
+                        email: user.email,
+                    }));
+                });
+        }
+
+        return user;
     }
 
     userDisconnected(socket: ServerWebSocket<WebSocketData>) {
@@ -65,6 +97,17 @@ export class Room {
         }));
 
         user.state = 'eliminated';
+
+        const spectators = this.users.filter(s => s.spectator);
+        if (!spectators) return;
+
+        // notify spectators
+        spectators.forEach(s => {
+            s.socket?.send(JSON.stringify({
+                type: 'eliminated',
+                id: user.id
+            }));
+        });
     }
 
 
@@ -79,7 +122,7 @@ export class Room {
             .forEach(s => {
                 s.socket?.send(JSON.stringify({
                     type: 'game_state',
-                    state: 'started'
+                    state: 'red'
                 }));
             });
     }
@@ -93,10 +136,22 @@ export class Room {
             .forEach(s => {
                 s.socket?.send(JSON.stringify({
                     type: 'game_state',
-                    state: 'idle'
+                    state: 'green'
                 }));
             });
 
-        this.state = 'idle';
+        this.state = 'green';
+    }
+
+    getPlayers() {
+        return this.users
+            .filter(s => s.connectionState === 'connected')
+            .filter(s => !s.spectator);
+    }
+
+    getSpectators() {
+        return this.users
+            .filter(s => s.connectionState === 'connected')
+            .filter(s => s.spectator);
     }
 }

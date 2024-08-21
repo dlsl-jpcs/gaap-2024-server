@@ -1,6 +1,7 @@
 import * as rl from 'readline';
 import { Room } from "./room";
 import type { WebSocketData } from "./user";
+import { getStudentInfo, parseNameFromDlslEmail } from './utils';
 
 const PORT = 3000;
 
@@ -13,7 +14,8 @@ const server = Bun.serve<WebSocketData>({
 
         if (url.pathname === '/rlgl') {
             const data = {
-                id: url.searchParams.get('userId') || 0
+                id: url.searchParams.get('userId') || 0,
+                isSpectator: url.searchParams.get('spectator') === 'true'
             };
             server.upgrade(request, {
                 data: data
@@ -30,25 +32,23 @@ const server = Bun.serve<WebSocketData>({
 
     websocket: {
         open: async (ws) => {
-            room.addUser(ws);
-            console.log("User " + ws.data.id + " connected.");
+            await room.addUser(ws);
 
             room.users.forEach(s => {
                 s.socket?.send(JSON.stringify({
                     type: 'users',
-                    count: room.users.filter(s => s.connectionState === 'connected').length
+                    count: room.getPlayers().length
                 }));
             });
         },
 
         close: (ws) => {
             room.userDisconnected(ws);
-            console.log("User disconnected.");
 
             room.users.forEach(s => {
                 s.socket?.send(JSON.stringify({
                     type: 'users',
-                    count: room.users.filter(s => s.connectionState === 'connected').length
+                    count: room.getPlayers().length
                 }));
             });
         },
@@ -68,7 +68,7 @@ console.log(`Server is running on ip ${server.hostname} and port ${PORT}`);
 
 
 
-
+// debug purposes
 
 const readline = rl.createInterface({
     input: process.stdin,
@@ -127,6 +127,10 @@ function ask() {
         }
 
 
+        if (command === "clear") {
+            room.users = [];
+            return ask();
+        }
 
         if (isColorValid(command)) {
             room.users.forEach(s => {
