@@ -15,6 +15,9 @@ export class Room {
     }
 
 
+    /**
+     * Called when a message is received from a use
+     */
     onMessage(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
         const fromUser = this.users.find(s => s.id === ws.data.id);
         if (!fromUser) {
@@ -25,6 +28,12 @@ export class Room {
         const data = JSON.parse(message.toString());
         if (data.type === 'moved') {
             this.userEliminated(fromUser);
+        } else if (data.type === 'state' && fromUser.admin) {
+            if (data.state === 'red') {
+                this.redLight();
+            } else if (data.state === 'green') {
+                this.greenLight();
+            }
         }
     }
 
@@ -64,12 +73,13 @@ export class Room {
             email: studentInfo.email_address,
             spectator: socket.data.isSpectator,
             connectionState: 'connected',
+            admin: socket.data.isAdmin,
             state: 'active'
         };
         this.users.push(user);
 
 
-        if (!user.spectator) {
+        if (!user.spectator && !user.admin) {
             this.getSpectators()
                 .forEach(s => {
                     s.socket?.send(JSON.stringify({
@@ -118,8 +128,16 @@ export class Room {
     redLight() {
         this.state = 'red';
 
-        this.users
+        this.getPlayers()
             .filter(s => s.state === 'active')
+            .forEach(s => {
+                s.socket?.send(JSON.stringify({
+                    type: 'game_state',
+                    state: 'red'
+                }));
+            });
+
+        this.getSpectators()
             .forEach(s => {
                 s.socket?.send(JSON.stringify({
                     type: 'game_state',
@@ -132,7 +150,10 @@ export class Room {
      * Send a green light to all users
      */
     greenLight() {
-        this.users
+        this.state = 'green';
+
+
+        this.getPlayers()
             .filter(s => s.state === 'active')
             .forEach(s => {
                 s.socket?.send(JSON.stringify({
@@ -141,18 +162,27 @@ export class Room {
                 }));
             });
 
-        this.state = 'green';
+
+        this.getSpectators()
+            .forEach(s => {
+                s.socket?.send(JSON.stringify({
+                    type: 'game_state',
+                    state: 'green'
+                }));
+            });
     }
 
     getPlayers() {
         return this.users
             .filter(s => s.connectionState === 'connected')
+            .filter(s => !s.admin)
             .filter(s => !s.spectator);
     }
 
     getSpectators() {
         return this.users
             .filter(s => s.connectionState === 'connected')
-            .filter(s => s.spectator);
+            .filter(s => s.spectator)
+            .filter(s => !s.admin);
     }
 }

@@ -12,8 +12,13 @@ export function startServer(room: Room) {
             return routeRequest(request, server);
         },
 
-        websocket: handleWebSocketConnection(room),
+        websocket: {
+            ...handleWebSocketConnection(room),
+            perMessageDeflate: true,
+        },
 
         port: PORT,
+
+
     });
 }

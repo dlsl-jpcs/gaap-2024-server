@@ -8,7 +8,8 @@ export const routeRequest = (request: Request, server: Server): Response | undef
     if (url.pathname === '/rlgl') {
         const data = {
             id: url.searchParams.get('userId') || 0,
-            isSpectator: url.searchParams.get('spectator') === 'true'
+            isSpectator: url.searchParams.get('spectator') === 'true',
+            isAdmin: url.searchParams.get('admin') === 'true'
         };
         server.upgrade(request, {
             data: data
