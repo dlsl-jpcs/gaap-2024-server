@@ -2,7 +2,9 @@ import type { ServerWebSocket } from "bun";
 import type { User, WebSocketData } from "./user";
 import { getStudentInfo } from "./utils";
 
-
+/**
+ * Handles the main game state, users, and game logic
+ */
 export class Room {
     users: User[] = [];
 
@@ -23,7 +25,6 @@ export class Room {
         const data = JSON.parse(message.toString());
         if (data.type === 'moved') {
             this.userEliminated(fromUser);
-            ` console.log("User: " + fromUser.id + " eliminated by " + data.cause);`
         }
     }
 

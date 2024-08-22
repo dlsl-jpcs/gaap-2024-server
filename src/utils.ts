@@ -42,3 +42,7 @@ export async function getStudentInfo(id: string): Promise<{ email_address: strin
 
     return await response.json();
 }
+
+export function isColorValid(color: string) {
+    return /^#[0-9A-F]{6}$/i.test(color);
+}
