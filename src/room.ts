@@ -66,6 +66,8 @@ export class Room {
             }
         });
 
+        const alreadyStarted = this.state !== 'idle';
+
         const user: User = {
             socket: socket,
             id: socket.data.id,
@@ -74,12 +76,21 @@ export class Room {
             spectator: socket.data.isSpectator,
             connectionState: 'connected',
             admin: socket.data.isAdmin,
-            state: 'active'
+            state: alreadyStarted ? 'eliminated' : 'active'
         };
         this.users.push(user);
 
 
+
         if (!user.spectator && !user.admin) {
+            if (alreadyStarted) {
+                socket.send(JSON.stringify({
+                    type: 'sync',
+                    gameState: this.state,
+                    eliminated: user.state === 'eliminated'
+                }));
+            }
+
             this.getSpectators()
                 .forEach(s => {
                     s.socket?.send(JSON.stringify({
