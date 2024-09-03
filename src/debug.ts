@@ -1,6 +1,7 @@
 import * as rl from 'readline';
 import { getStudentInfo, isColorValid } from './utils';
 import type { RedLightGreenLightRoom } from './redLightGreenLight';
+import type { GuessTheSong } from './guessTheSong';
 
 
 const readline = rl.createInterface({
@@ -100,6 +101,25 @@ export function ask(room: RedLightGreenLightRoom) {
 
 
         ask(room);
+    });
+}
+
+export function askGts(room: GuessTheSong) {
+    readline.question("Enter a command: ", (command) => {
+        if (command === 'exit') {
+            readline.close();
+            return;
+        }
+
+        if (command === 'start') {
+            room.start();
+            return askGts(room);
+        }
+
+        if (command === 'next') {
+            room.nextRound();
+            return askGts(room);
+        }
     });
 }
 
