@@ -1,6 +1,14 @@
 import type { ServerWebSocket } from "bun";
 import type { User, WebSocketData } from "./user";
 import { getStudentInfo } from "./utils";
+import { Database } from "bun:sqlite";
+
+
+const db = new Database("students.db");
+const query = db.query(`CREATE TABLE IF NOT EXISTS students (id INTEGER PRIMARY KEY, email_address TEXT, department TEXT audio TEXT)`);
+query.run();
+
+
 
 /**
  * Handles the main game state, users, and game logic

@@ -25,7 +25,7 @@ export function ask(room: Room) {
             console.log("[Users] " + room.users.length);
             for (let i = 0; i < room.users.length; i++) {
                 const user = room.users[i];
-                console.log(`User [${user.id}]: ${user.connectionState}`);
+                console.log(`[${user.id}]: [${user.state}] ${user.connectionState}`);
             }
             return ask(room);
         }
@@ -48,6 +48,7 @@ export function ask(room: Room) {
         }
 
         if (command == "reset") {
+            room.state = 'idle';
             room.users.forEach(s => {
                 s.state = 'active';
             });

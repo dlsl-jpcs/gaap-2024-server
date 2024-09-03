@@ -8,4 +8,6 @@ import { ask } from './debug';
 const room = new Room();
 const server = startServer(room);
 
+console.log(`Server started on port ${server.port}`);
+
 ask(room);
