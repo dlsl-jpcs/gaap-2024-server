@@ -11,52 +11,52 @@ query.run();
 
 
 /**
- * Handles the main game state, users, and game logic
+ * Base class for a room.
+ * 
+ * This can be extended to create different types of games.
  */
-export class Room {
+export abstract class AbstractRoom {
     users: User[] = [];
-
-    state: 'red' | 'green' | 'idle' = 'idle';
 
     constructor() {
 
     }
 
+    /**
+     * Ideally, each game should have a unique type,
+     */
+    abstract getType(): string;
 
     /**
-     * Called when a message is received from a use
+     * Callback when a user who previously connected to the room reconnects.
+     * 
+     * @param user The user that connected
      */
-    onMessage(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
-        const fromUser = this.users.find(s => s.id === ws.data.id);
-        if (!fromUser) {
-            console.error("User " + ws.data.id + " not found");
-            return;
-        }
+    onExistingUserConnected(user: User) {
 
-        const data = JSON.parse(message.toString());
-        if (data.type === 'moved') {
-            this.userEliminated(fromUser);
-        } else if (data.type === 'state' && fromUser.admin) {
-            if (data.state === 'red') {
-                this.redLight();
-            } else if (data.state === 'green') {
-                this.greenLight();
-            }
-        }
     }
 
+    /**
+     * Callback when a new user connects to the room
+     * 
+     * @param user The user that connected
+     */
+    onNewUserConnected(user: User) {
 
-    async addUser(socket: ServerWebSocket<WebSocketData>): Promise<User> {
+    }
+
+    /**
+     * INTERNAL: Called when a user has connected to the room
+     * 
+     * do not override this method.
+     */
+    async userConnected(socket: ServerWebSocket<WebSocketData>): Promise<User> {
         const existing = this.users.find(s => s.id === socket.data.id);
         if (existing) {
             existing.socket = socket;
 
             if (existing.connectionState === "disconnected") {
-                socket.send(JSON.stringify({
-                    type: 'sync',
-                    gameState: this.state,
-                    eliminated: existing.state === 'eliminated'
-                }));
+                this.onExistingUserConnected(existing);
             }
 
             existing.connectionState = 'connected';
@@ -74,8 +74,6 @@ export class Room {
             }
         });
 
-        const alreadyStarted = this.state !== 'idle';
-
         const user: User = {
             socket: socket,
             id: socket.data.id,
@@ -83,125 +81,57 @@ export class Room {
             email: studentInfo.email_address,
             spectator: socket.data.isSpectator,
             connectionState: 'connected',
-            admin: socket.data.isAdmin,
-            state: alreadyStarted ? 'eliminated' : 'active'
+            admin: socket.data.isAdmin
         };
         this.users.push(user);
 
-
-
-        if (!user.spectator && !user.admin) {
-            if (alreadyStarted) {
-                socket.send(JSON.stringify({
-                    type: 'sync',
-                    gameState: this.state,
-                    eliminated: user.state === 'eliminated'
-                }));
-            }
-
-            this.getSpectators()
-                .forEach(s => {
-                    s.socket?.send(JSON.stringify({
-                        type: 'join',
-                        id: user.id,
-                        course: user.course,
-                        email: user.email,
-                    }));
-                });
-        }
+        this.onNewUserConnected(user);
 
         return user;
     }
 
     userDisconnected(socket: ServerWebSocket<WebSocketData>) {
         const user = this.users.find(s => s.id === socket.data.id);
-        if (user) {
-            user.socket = null;
-            user.connectionState = 'disconnected';
+        if (!user) {
+            return;
         }
+
+        this.onUserDisconnected(user);
+
+        user.socket = null;
+        user.connectionState = 'disconnected';
     }
 
-    userEliminated(user: User) {
-        user.socket?.send(JSON.stringify({
-            type: 'eliminated',
-        }));
+    /**
+     * Callback when a user disconnects from the room.
+     * @param user 
+     */
+    onUserDisconnected(user: User) {
 
-        user.state = 'eliminated';
-
-        const spectators = this.users.filter(s => s.spectator);
-        if (!spectators) return;
-
-        // notify spectators
-        spectators.forEach(s => {
-            s.socket?.send(JSON.stringify({
-                type: 'eliminated',
-                id: user.id
-            }));
-        });
     }
 
 
     /**
-     * Send a red light to all users
+     *  INTERNAL: Called when a message is received from a user
+     * 
+     * Do not override this method. Instead, override onUserMessage
      */
-    redLight() {
-        this.state = 'red';
+    onMessage(ws: ServerWebSocket<WebSocketData>, message: string | Buffer) {
+        const user = this.users.find(s => s.id === ws.data.id);
+        if (!user) {
+            return;
+        }
 
-        this.getPlayers()
-            .filter(s => s.state === 'active')
-            .forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'game_state',
-                    state: 'red'
-                }));
-            });
-
-        this.getSpectators()
-            .forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'game_state',
-                    state: 'red'
-                }));
-            });
+        this.onUserMessage(user, JSON.parse(message.toString()));
     }
 
     /**
-     * Send a green light to all users
+     *  Callback when a user sends a message to the server
+     * 
+     * @param user The user that sent the message
+     * @param data The data sent by the user
      */
-    greenLight() {
-        this.state = 'green';
+    onUserMessage(user: User, data: any) {
 
-
-        this.getPlayers()
-            .filter(s => s.state === 'active')
-            .forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'game_state',
-                    state: 'green'
-                }));
-            });
-
-
-        this.getSpectators()
-            .forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'game_state',
-                    state: 'green'
-                }));
-            });
-    }
-
-    getPlayers() {
-        return this.users
-            .filter(s => s.connectionState === 'connected')
-            .filter(s => !s.admin)
-            .filter(s => !s.spectator);
-    }
-
-    getSpectators() {
-        return this.users
-            .filter(s => s.connectionState === 'connected')
-            .filter(s => s.spectator)
-            .filter(s => !s.admin);
     }
 }

@@ -1,29 +1,15 @@
 import type { ServerWebSocket } from 'bun';
-import { Room } from './room';
+import { AbstractRoom } from './room';
 import type { WebSocketData } from './user';
 
-export const handleWebSocketConnection = (room: Room) => (
+export const handleWebSocketConnection = (room: AbstractRoom) => (
     {
         open: async (ws: ServerWebSocket<WebSocketData>) => {
-            await room.addUser(ws);
-
-            room.users.forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'users',
-                    count: room.getPlayers().length
-                }));
-            });
+            await room.userConnected(ws);
         },
 
         close: (ws: ServerWebSocket<WebSocketData>) => {
             room.userDisconnected(ws);
-
-            room.users.forEach(s => {
-                s.socket?.send(JSON.stringify({
-                    type: 'users',
-                    count: room.getPlayers().length
-                }));
-            });
         },
 
         message: (ws: ServerWebSocket<WebSocketData>, message: string) => {

@@ -22,5 +22,4 @@ export type User = {
 
     // state
     connectionState: 'connected' | 'disconnected';
-    state: 'active' | 'eliminated';
 }

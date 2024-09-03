@@ -1,6 +1,6 @@
 import * as rl from 'readline';
-import { isColorValid } from './utils';
-import type { Room } from './room';
+import { getStudentInfo, isColorValid } from './utils';
+import type { RedLightGreenLightRoom } from './redLightGreenLight';
 
 
 const readline = rl.createInterface({
@@ -14,7 +14,7 @@ const readline = rl.createInterface({
  * disconnecting all users, 
  * changing room state, etc.
  */
-export function ask(room: Room) {
+export function ask(room: RedLightGreenLightRoom) {
     readline.question("Enter a command: ", (command) => {
         if (command === 'exit') {
             readline.close();
@@ -25,7 +25,7 @@ export function ask(room: Room) {
             console.log("[Users] " + room.users.length);
             for (let i = 0; i < room.users.length; i++) {
                 const user = room.users[i];
-                console.log(`[${user.id}]: [${user.state}] ${user.connectionState}`);
+                // console.log(`[${user.id}]: [${user.state}] ${user.connectionState}`);
             }
             return ask(room);
         }
@@ -49,9 +49,9 @@ export function ask(room: Room) {
 
         if (command == "reset") {
             room.state = 'idle';
-            room.users.forEach(s => {
-                s.state = 'active';
-            });
+            // room.users.forEach(s => {
+            //     s.state = 'active';
+            // });
             // sync
             room.users.forEach(s => {
                 s.socket?.send(JSON.stringify({
@@ -78,7 +78,35 @@ export function ask(room: Room) {
             });
         }
 
+        if (command === 'simulateJoin') {
+            room.getSpectators().forEach(async s => {
+                var ids = Object.keys(testIdToTrack);
+                for (let i = 0; i < ids.length; i++) {
+                    const id = ids[i];
+                    const track = testIdToTrack[id];
+                    const info = await getStudentInfo(id);
+
+
+                    s.socket?.send(JSON.stringify({
+                        type: 'join',
+                        id: id,
+                        email: info.email_address,
+                        course: info.department,
+                        track: track,
+                    }));
+                }
+            });
+        }
+
 
         ask(room);
     });
+}
+
+const testIdToTrack: { [key: string]: string } = {
+    "2021314281": "34gCuhDGsG4bRPIf9bb02f",
+    "2023348471": "44KoJ5JDeP9qCJXtP6WTVd",
+    "2023362341": "7FOgcfdz9Nx5V9lCNXdBYv",
+    "2023362771": "5XeFesFbtLpXzIVDNQP22n",
+
 }
