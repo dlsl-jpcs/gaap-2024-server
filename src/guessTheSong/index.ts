@@ -1,7 +1,7 @@
-import { SpotifyApi, type Track } from "@spotify/web-api-ts-sdk";
+import { SpotifyApi, type Playlist, type Track } from "@spotify/web-api-ts-sdk";
 import { AbstractRoom } from "../room";
 import type { User } from "../user";
-import { getStudentInfo } from "../utils";
+import { getStudentInfo, shuffle } from "../utils";
 
 const api = SpotifyApi.withClientCredentials(
     Bun.env.VITE_SPOTIFY_CLIENT_ID!,
@@ -35,12 +35,22 @@ class Round {
     // this is used to prevent users from guessing multiple times
     userGuessed: User[] = [];
 
+    ended: boolean = false;
+
     start() {
         this.startTime = Date.now();
     }
 
+    end() {
+        this.ended = true;
+    }
+
 
     onUserGuess(user: User, guess: string) {
+        if (this.ended) {
+            return;
+        }
+
         if (this.userGuessed.includes(user)) {
             // already guessed
             return;
@@ -87,6 +97,8 @@ export class GuessTheSong extends AbstractRoom {
 
     roomState: "waiting" | "playing" = "waiting";
 
+    playlist: Track[] = [];
+
 
     getType(): string {
         return "GUESS_THE_SONG";
@@ -95,7 +107,19 @@ export class GuessTheSong extends AbstractRoom {
     constructor() {
         super();
 
-        this.loadRounds();
+        this.loadPlaylist().then(playlist => {
+            this.playlist = playlist.tracks.items.map(item => item.track);
+
+            console.log("Loaded playlist", playlist.tracks.items.length);
+        }).then(() => {
+            return this.loadRounds();
+        }).catch(e => {
+            console.error("Failed to load playlist", e);
+        });
+    }
+
+    async loadPlaylist() {
+        return api.playlists.getPlaylist("6MKl35HliU3UdPnmib2XJG");
     }
 
     onUserMessage(user: User, data: any): void {
@@ -121,6 +145,19 @@ export class GuessTheSong extends AbstractRoom {
             this.nextRound();
             return;
         }
+
+        if (user.admin && type === "start") {
+            this.start();
+            return;
+        }
+
+        if (user.admin && type === "shuffle") {
+            this.loadRounds().then(() => {
+                console.log("Shuffled tracks");
+                this.syncAdmin();
+            });
+            return;
+        }
     }
 
     onExistingUserConnected(user: User): void {
@@ -129,10 +166,18 @@ export class GuessTheSong extends AbstractRoom {
             return;
         }
 
-        user.socket?.send(JSON.stringify({
-            type: "sync",
-            submitted: currentRound.userGuessed.includes(user),
-        }))
+        if (user.admin) {
+            this.syncAdmin();
+            return;
+        }
+
+
+        if (!currentRound.ended) {
+            user.socket?.send(JSON.stringify({
+                type: "sync",
+                submitted: currentRound.userGuessed.includes(user),
+            }));
+        }
     }
 
     override onNewUserConnected(user: User): void {
@@ -141,31 +186,53 @@ export class GuessTheSong extends AbstractRoom {
                 type: "start"
             }));
         }
+
+        console.log("New user connected", user.id);
+
+        if (user.admin) {
+            this.syncAdmin();
+        }
     }
 
     async loadRounds() {
         console.log("Loading tracks");
-        const playlist = await api.playlists.getPlaylist("6MKl35HliU3UdPnmib2XJG");
+        const playlist = this.playlist;
+
+        this.rounds = [];
 
         // shuffle the tracks
-        const shuffled = playlist.tracks.items.sort(() => Math.random() - 0.5);
-        shuffled.forEach((track) => {
-            if (!track.track) {
-                return;
-            }
-            if (!track.track.preview_url) {
-                return;
-            }
-            this.rounds.push(new Round(track.track));
-        });
+        const shuffled = shuffle(new Array(...playlist));
 
-        // trim rounds to 5
-        this.rounds = this.rounds.slice(0, 5);
+
+
+        const pickedTracks: Track[] = [];
+        let tries = 0;
+        while (pickedTracks.length < 5) {
+            const track = shuffled.pop();
+
+
+            if (track && track.preview_url) {
+                pickedTracks.push(track);
+            }
+
+            tries++;
+
+            if (tries > 100) {
+                console.error("Failed to pick tracks");
+                break;
+            }
+        }
+
+        this.rounds = pickedTracks.map(track => new Round(track));
 
         this.currentRoundIndex = 0;
     }
 
     start() {
+        if (this.roomState === "playing") {
+            return;
+        }
+
         this.roomState = "playing";
         this.currentRoundIndex = -1;
 
@@ -174,8 +241,18 @@ export class GuessTheSong extends AbstractRoom {
                 type: "start",
             }))
         });
-
         this.nextRound();
+    }
+
+    syncAdmin() {
+        this.users.filter(user => user.admin).forEach(admin => {
+            admin.socket?.send(JSON.stringify({
+                type: "sync",
+                currentRound: this.currentRoundIndex,
+                state: this.roomState,
+                songs: this.rounds.map(round => round.track)
+            }))
+        });
     }
 
 
@@ -213,6 +290,8 @@ export class GuessTheSong extends AbstractRoom {
                 }))
             });
 
+            this.syncAdmin();
+
             // countdown timer
             this.currentRoundTime = 30;
             const interval = setInterval(() => {
@@ -225,11 +304,35 @@ export class GuessTheSong extends AbstractRoom {
                             type: "roundEnd",
                         }))
                     });
-                    this.getSpectators().forEach(player => {
-                        player.socket?.send(JSON.stringify({
-                            type: "roundEnd",
-                        }))
+
+                    const top = this.getTop5();
+                    const users = top.map(async ([id, score]) => {
+                        const info = await getStudentInfo(id);
+
+                        return {
+                            id: id,
+                            email: info.email_address,
+                            course: info.department,
+                            score: score
+                        }
                     });
+
+                    const allPromise = Promise.all(users);
+
+                    allPromise.then(users => {
+                        this.getSpectators().forEach(player => {
+                            player.socket?.send(JSON.stringify({
+                                type: "roundEnd",
+                                top5: users
+                            }))
+                        });
+
+                    });
+
+
+                    round.end();
+
+                    this.syncAdmin();
                     return;
                 }
             }, 1000);
@@ -237,32 +340,33 @@ export class GuessTheSong extends AbstractRoom {
             // game over
             // calculate the scores, per user
 
-            const scores: Record<string, number> = {};
-            this.rounds.forEach(round => {
-                round.correctGuesses.forEach(guess => {
-                    const user = guess.user;
-                    const score = 1 / guess.seconds;
-                    if (scores[user.id]) {
-                        scores[user.id] += score;
-                    } else {
-                        scores[user.id] = score;
-                    }
-                });
-            });
+            const scores = this.getTop5();
+            this.sendTopScores(scores);
 
-            const sortedScores = Object.entries(scores).sort((a, b) => b[1] - a[1]);
-
-            // print to console
-            const top3 = sortedScores.slice(0, 3);
-
-            this.sendTop3(top3);
-
-            ;
-
+            this.syncAdmin();
         }
     }
 
-    async sendTop3(top3: [string, number][]) {
+    getTop5() {
+        const scores: Record<string, number> = {};
+        this.rounds.forEach(round => {
+            round.correctGuesses.forEach(guess => {
+                const user = guess.user;
+                const score = 1 / guess.seconds;
+                if (scores[user.id]) {
+                    scores[user.id] += score;
+                } else {
+                    scores[user.id] = score;
+                }
+            });
+        });
+
+        const sortedScores = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+
+        return sortedScores.slice(0, 5);
+    }
+
+    async sendTopScores(top3: [string, number][]) {
         const top3Users = top3.map(async ([id, score]) => {
             const info = await getStudentInfo(id);
 
@@ -287,4 +391,6 @@ export class GuessTheSong extends AbstractRoom {
         });
 
     }
+
+
 }

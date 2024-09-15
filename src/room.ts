@@ -56,6 +56,13 @@ export abstract class AbstractRoom {
             existing.socket = socket;
 
             if (existing.connectionState === "disconnected") {
+                // confirm the room to the user
+                socket.send(JSON.stringify({
+                    type: 'room_confirmation',
+                    room: this.getType()
+                }));
+
+
                 this.onExistingUserConnected(existing);
             }
 
@@ -84,6 +91,12 @@ export abstract class AbstractRoom {
             admin: socket.data.isAdmin
         };
         this.users.push(user);
+
+        // confirm the room to the user
+        socket.send(JSON.stringify({
+            type: 'room_confirmation',
+            room: this.getType()
+        }));
 
         this.onNewUserConnected(user);
 
