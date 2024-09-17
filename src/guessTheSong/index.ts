@@ -6,6 +6,7 @@ import { getStudentInfo, shuffle } from "../utils";
 const api = SpotifyApi.withClientCredentials(
     Bun.env.VITE_SPOTIFY_CLIENT_ID!,
     Bun.env.VITE_CLIENT_SECRET!,
+
 )
 
 
